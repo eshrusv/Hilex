@@ -248,6 +248,7 @@ OWNER_USERNAME = "iam_eshh"
 OWNER_NAME = "ᴇ ꜱ ʜ ᥫ᭡"
 CHANNEL_LINK = "https://t.me/+a_Zh1YV6C4E5ZTY1"
 GROUP_LINK = "https://t.me/hilexxhits"
+HIT_GC_ID = -1001234567890   # ← replace with your actual group chat ID (negative number)
 CHANNEL_USERNAME = "hilexxhits"          # for join check (adjust if private)
 BOT_NAME = "ʜ ᴇ ʟ ᴇ x メ"
 KEY_PREFIX = "ʜ ᴇ ʟ ᴇ x メ"
@@ -2857,6 +2858,82 @@ async def send_realtime_hit_dm(user_id, result, hit_type, first_name):
         print(f"DM hit error: {e}")
 
 # ============================================================
+# GC HIT BROADCAST
+# ============================================================
+def mask_card(card: str) -> str:
+    """Show only last 4 digits of card number, blur the rest."""
+    parts = card.split("|")
+    if not parts:
+        return card
+    num = parts[0]
+    masked = "●" * (len(num) - 4) + num[-4:]
+    parts[0] = masked
+    return "|".join(parts)
+
+async def send_hit_to_gc(result, user_id, first_name):
+    """Send hit notification to group chat with masked card."""
+    try:
+        if HIT_GC_ID == -1001234567890:
+            return  # not configured yet
+        brand, _, _, bank, country, flag = await get_bin_info(result['card'].split('|')[0])
+        gateway = result.get('gateway', 'Auto Shopify')
+        price = result.get('price', '-')
+        response_msg = str(result.get('message', ''))[:60]
+        is_charged = result['status'] == 'Charged'
+        status_text = "Charged 💎" if is_charged else "Live 🔥"
+        plan = "👑 Admin" if is_admin(user_id) else "💎 Premium" if is_premium(user_id) else "⭐ Free"
+        currency = "₹" if "razorpay" in gateway.lower() else "$"
+        current_time = get_indian_time()
+        masked = mask_card(result['card'])
+
+        gc_msg = f"""╔══〔 💎 ʜɪʟᴇx ʜɪᴛ 〕══╗
+
+❝ {status_text} ❞
+<blockquote>⚡ {response_msg}</blockquote>
+
+💠 <b>Card</b>
+┃ <tg-spoiler><code>{masked}</code></tg-spoiler>
+
+💰 <b>Amount</b> · <b>{currency}{price}</b>
+🔗 <b>Gate</b> · <code>{gateway}</code>
+
+💳 <b>Bin Info</b>
+┣ {result['card'][:6]} · {brand}
+┣ 🏧 {bank}
+┗ ☄️ {country} {flag}
+
+⏱ <code>{current_time}</code>
+👤 <a href="tg://user?id={user_id}">{first_name}</a> <i>[{plan}]</i>
+
+╚══〔 ʜ ᴇ ʟ ᴇ x  メ 〕══╝"""
+
+        gif_url = await fetch_random_anime_gif()
+        sent = False
+        if gif_url:
+            try:
+                import tempfile, os as _os
+                async with aiohttp.ClientSession() as _s:
+                    async with _s.get(gif_url, timeout=aiohttp.ClientTimeout(total=12)) as _r:
+                        _gif_data = await _r.read()
+                with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as _tmp:
+                    _tmp.write(_gif_data)
+                    _tmp_path = _tmp.name
+                await bot.send_file(
+                    HIT_GC_ID, _tmp_path,
+                    caption=premium_emoji(gc_msg),
+                    parse_mode="html",
+                    supports_streaming=True
+                )
+                try: _os.remove(_tmp_path)
+                except: pass
+                sent = True
+            except Exception: pass
+        if not sent:
+            await bot.send_message(HIT_GC_ID, premium_emoji(gc_msg), parse_mode="html")
+    except Exception as e:
+        print(f"GC hit error: {e}")
+
+# ============================================================
 # USER SAVE
 # ============================================================
 def save_user(user_id):
@@ -3820,10 +3897,12 @@ async def run_chk(data, sites):
                     all_results['charged'].append(res)
                     asyncio.create_task(send_hit_to_admin(res, user_id, "Charged"))
                     asyncio.create_task(send_realtime_hit_dm(user_id, res, 'Charged', username))
+                    asyncio.create_task(send_hit_to_gc(res, user_id, username))
                 elif res['status'] == 'Approved':
                     all_results['approved'].append(res)
                     asyncio.create_task(send_hit_to_admin(res, user_id, "Approved"))
                     asyncio.create_task(send_realtime_hit_dm(user_id, res, 'Approved', username))
+                    asyncio.create_task(send_hit_to_gc(res, user_id, username))
                 else:
                     all_results['dead'].append(res)
                     if res['status'] == 'Site Error':
